@@ -11,10 +11,10 @@ class BotService {
   }
 
   // 处理收到的消息
-  async handleMessage(messageXml) {
+  async handleMessage(messageData) {
     try {
       // 解析消息内容
-      const message = this.parseMessage(messageXml);
+      const message = this.parseMessage(messageData);
       
       if (!message) {
         return null;
@@ -26,7 +26,7 @@ class BotService {
       const response = await this.generateResponse(message);
       
       if (response) {
-        return wechatService.buildTextMessage(message.fromUser, response);
+        return this.buildReplyMessage(message, response);
       }
 
       return null;
@@ -36,26 +36,61 @@ class BotService {
     }
   }
 
-  // 解析XML消息
-  parseMessage(messageXml) {
+  // 解析消息（支持XML和JSON格式）
+  parseMessage(messageData) {
     try {
-      const xml = messageXml.xml;
+      let message = {};
       
-      if (!xml) {
+      // 判断是XML格式（企业微信应用消息）还是JSON格式（微信客服消息）
+      if (messageData.xml) {
+        // XML格式消息
+        const xml = messageData.xml;
+        message = {
+          toUser: xml.ToUserName || '',
+          fromUser: xml.FromUserName || '',
+          createTime: xml.CreateTime || '',
+          msgType: xml.MsgType || '',
+          content: xml.Content || '',
+          msgId: xml.MsgId || '',
+          source: 'wechat_work'
+        };
+      } else if (messageData.MsgType || messageData.msgtype) {
+        // JSON格式消息（微信客服）
+        message = {
+          toUser: messageData.ToUserName || '',
+          fromUser: messageData.FromUserName || messageData.external_userid || '',
+          createTime: messageData.CreateTime || Date.now(),
+          msgType: messageData.MsgType || messageData.msgtype || '',
+          content: messageData.Content || messageData.text?.content || '',
+          msgId: messageData.MsgId || messageData.msgid || '',
+          source: 'wechat_kf'
+        };
+      } else {
+        console.warn('未识别的消息格式:', messageData);
         return null;
       }
-
-      return {
-        toUser: xml.ToUserName ? xml.ToUserName[0] : '',
-        fromUser: xml.FromUserName ? xml.FromUserName[0] : '',
-        createTime: xml.CreateTime ? xml.CreateTime[0] : '',
-        msgType: xml.MsgType ? xml.MsgType[0] : '',
-        content: xml.Content ? xml.Content[0] : '',
-        msgId: xml.MsgId ? xml.MsgId[0] : ''
-      };
+      
+      return message;
     } catch (error) {
-      console.error('解析消息XML错误:', error);
+      console.error('解析消息错误:', error);
       return null;
+    }
+  }
+
+  // 构建回复消息
+  buildReplyMessage(originalMessage, responseContent) {
+    if (originalMessage.source === 'wechat_kf') {
+      // 微信客服消息格式
+      return {
+        touser: originalMessage.fromUser,
+        msgtype: 'text',
+        text: {
+          content: responseContent
+        }
+      };
+    } else {
+      // 企业微信应用消息格式
+      return wechatService.buildTextMessage(originalMessage.fromUser, responseContent);
     }
   }
 

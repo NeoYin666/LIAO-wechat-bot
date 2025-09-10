@@ -1,74 +1,51 @@
 #!/bin/bash
 
-# 阿里云服务器部署脚本
-# 使用方法: ./deploy.sh [服务器IP]
+# 微信客服Docker部署脚本
+echo "🚀 开始部署微信客服Docker容器..."
 
-SERVER_IP=${1:-"8.217.9.126"}
-SERVER_USER="root"
-PROJECT_NAME="wechat-customer-service"
-REMOTE_DIR="/opt/$PROJECT_NAME"
+# 检查Docker是否安装
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker未安装，正在安装..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    systemctl enable docker
+    systemctl start docker
+fi
 
-echo "🚀 开始部署到阿里云服务器: $SERVER_IP"
+# 检查docker-compose是否安装
+if ! command -v docker-compose &> /dev/null; then
+    echo "❌ Docker Compose未安装，正在安装..."
+    curl -L "https://github.com/docker/compose/releases/download/v2.20.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+fi
 
-# 1. 打包项目文件
-echo "📦 打包项目文件..."
-tar -czf $PROJECT_NAME.tar.gz \
-  --exclude=node_modules \
-  --exclude=.git \
-  --exclude=logs \
-  --exclude=*.log \
-  src/ package.json package-lock.json .env.example README.md
+# 停止现有容器（如果存在）
+echo "🛑 停止现有服务..."
+docker-compose down 2>/dev/null || true
 
-# 2. 上传到服务器
-echo "⬆️  上传文件到服务器..."
-scp $PROJECT_NAME.tar.gz $SERVER_USER@$SERVER_IP:/tmp/
+# 清理旧镜像
+echo "🧹 清理旧镜像..."
+docker image prune -f
 
-# 3. 服务器端部署
-echo "🔧 在服务器端执行部署..."
-ssh $SERVER_USER@$SERVER_IP << 'EOF'
-  # 安装Node.js (如果未安装)
-  if ! command -v node &> /dev/null; then
-    echo "安装Node.js..."
-    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-    apt-get install -y nodejs
-  fi
-  
-  # 安装PM2 (如果未安装)
-  if ! command -v pm2 &> /dev/null; then
-    echo "安装PM2..."
-    npm install -g pm2
-  fi
-  
-  # 创建独立项目目录 (避免影响现有项目)
-  mkdir -p /opt/wechat-customer-service
-  cd /opt/wechat-customer-service
-  
-  # 解压项目文件
-  tar -xzf /tmp/wechat-customer-service.tar.gz
-  
-  # 安装依赖
-  echo "安装项目依赖..."
-  npm install --production
-  
-  # 复制环境变量文件
-  if [ ! -f .env ]; then
-    cp .env.example .env
-    echo "请编辑 /opt/wechat-customer-service/.env 文件，填入正确的配置信息"
-  fi
-  
-  # 设置文件权限 (使用root用户，避免权限冲突)
-  chown -R root:root /opt/wechat-customer-service
-  chmod -R 755 /opt/wechat-customer-service
-  
-  echo "✅ 独立部署完成！使用独立端口3001避免冲突"
-  echo "接下来请："
-  echo "1. 编辑 /opt/wechat-customer-service/.env 文件，设置PORT=3001"
-  echo "2. 运行: pm2 start /opt/wechat-customer-service/ecosystem.config.js"
-  echo "3. 在阿里云安全组开放3001端口"
-  echo "4. 微信回调URL: http://8.217.9.126:3001/webhook"
-EOF
+# 构建并启动容器
+echo "🔧 构建并启动容器..."
+docker-compose up --build -d
 
-# 清理本地临时文件
-rm $PROJECT_NAME.tar.gz
+# 检查容器状态
+echo "📊 检查容器状态..."
+sleep 10
+docker-compose ps
 
-echo "🎉 部署脚本执行完成！"
+# 测试健康状态
+echo "🏥 测试服务健康状态..."
+sleep 5
+curl -f http://localhost:3001/health && echo "✅ 服务启动成功!" || echo "❌ 服务启动失败!"
+
+# 显示日志
+echo "📝 显示最近日志..."
+docker-compose logs --tail=20
+
+echo "🎉 部署完成!"
+echo "📍 服务地址: http://localhost:3001"
+echo "🔍 查看日志: docker-compose logs -f"
+echo "🛑 停止服务: docker-compose down"

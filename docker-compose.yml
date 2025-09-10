@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  wechat-service:
+    build: .
+    container_name: wechat-customer-service
+    restart: unless-stopped
+    ports:
+      - "3001:3000"  # 使用3001端口避免冲突
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - WECHAT_CORP_ID=${WECHAT_CORP_ID}
+      - WECHAT_CORP_SECRET=${WECHAT_CORP_SECRET}
+      - WECHAT_AGENT_ID=${WECHAT_AGENT_ID}
+      - WECHAT_TOKEN=${WECHAT_TOKEN}
+      - WECHAT_ENCODING_AES_KEY=${WECHAT_ENCODING_AES_KEY}
+    networks:
+      - wechat-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  wechat-network:
+    driver: bridge
+
+volumes:
+  wechat-logs:
+    driver: local
